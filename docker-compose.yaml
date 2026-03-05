@@ -1,8 +1,8 @@
 services:
   db:
     container_name: postgresql_db_aca
-    image: postgres:17
-    restart: always
+    image: postgis/postgis:17-3.4
+    restart: unless-stopped
     env_file: .env
     environment:
       POSTGRES_USER: ${DB_USER}
@@ -10,31 +10,58 @@ services:
       POSTGRES_DB: ${DB_NAME}
     ports:
       - "5432:5432"
+
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
       interval: 10s
       timeout: 5s
-      retries: 10
+      retries: 20
+
     volumes:
-      # Persist database data (keep your bind mount; a named volume also works)
-      - ./postgres_data:/var/lib/postgresql/data
-      # Run these once on first initialization
-      - ./init:/docker-entrypoint-initdb.d
-      # Make CSVs available to COPY during init (read-only)
+      # Named volume for database persistence (no permission issues)
+      - postgres_data:/var/lib/postgresql/data
+
+      # Run once on first initialization
+      - ./init:/docker-entrypoint-initdb.d:ro
+
+      # Read-only data for COPY
       - ./data:/docker-entrypoint-initdb.d/data:ro
+      - ./data/analytics_schema:/data:ro
+
+    networks:
+      - aca_network
+
 
   pgadmin:
     container_name: pgadmin_aca
     image: dpage/pgadmin4
-    restart: always
+    restart: unless-stopped
     env_file: .env
     environment:
       PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL}
       PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD}
     ports:
       - "5050:80"
+
     volumes:
-      - ./pgadmin_data:/var/lib/pgadmin
+      # Named volume (fixes your 500 permission issue permanently)
+      - pgadmin_data:/var/lib/pgadmin
+
+      # Optional: keep queries as bind mount if you want editable SQL files
       - ./queries:/var/lib/pgadmin/storage/admin_admin.com/queries
+
     depends_on:
       - db
+
+    networks:
+      - aca_network
+
+
+networks:
+  aca_network:
+    driver: bridge
+
+
+volumes:
+  postgres_data:
+  pgadmin_data:
